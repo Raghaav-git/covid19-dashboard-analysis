@@ -1,0 +1,247 @@
+{% extends 'dashboard/base.html' %}
+
+{% block content %}
+<div class="row">
+    <!-- Page Header -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0">
+                    <i class="fas fa-chart-line"></i> COVID-19 Country Comparison
+                </h2>
+            </div>
+            <div class="card-body">
+                <p class="lead">
+                    Compare COVID-19 trends between different countries with side-by-side animated visualizations.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Controls Section -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="metric-selector">
+            <h5 class="mb-3"><i class="fas fa-sliders-h"></i> Select Metric:</h5>
+            <div class="btn-group" role="group" id="metricSelector">
+                <button type="button" class="btn btn-outline-primary btn-metric active" data-metric="cases">
+                    <i class="fas fa-user-injured"></i> Cases
+                </button>
+                <button type="button" class="btn btn-outline-danger btn-metric" data-metric="deaths">
+                    <i class="fas fa-skull-crossbones"></i> Deaths
+                </button>
+                <button type="button" class="btn btn-outline-success btn-metric" data-metric="vaccinations">
+                    <i class="fas fa-syringe"></i> Vaccinations
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="metric-selector">
+            <h5 class="mb-3"><i class="fas fa-globe"></i> Select Countries:</h5>
+            <div class="country-selector" id="countrySelector">
+                <div class="text-center">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading countries...</span>
+                    </div>
+                    Loading countries...
+                </div>
+            </div>
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="selectAll()">Select All</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearAll()">Clear All</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comparison Charts -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-chart-area"></i> Country Comparison - Primary View
+                </h4>
+            </div>
+            <div class="card-body">
+                <div id="compareChart1" class="graph-container"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-chart-bar"></i> Country Comparison - Secondary View
+                </h4>
+            </div>
+            <div class="card-body">
+                <div id="compareChart2" class="graph-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    let currentMetric = 'cases';
+    let selectedCountries = [];
+    
+    // Load countries list
+    loadCountries();
+    
+    // Metric selector event handler
+    $('.btn-metric').on('click', function() {
+        $('.btn-metric').removeClass('active');
+        $(this).addClass('active');
+        currentMetric = $(this).data('metric');
+        updateComparison();
+    });
+    
+    // Load countries list
+    function loadCountries() {
+        $.ajax({
+            url: '{% url "dashboard:countries_list" %}',
+            success: function(response) {
+                let html = '';
+                response.countries.forEach(function(country) {
+                    html += `
+                        <div class="form-check">
+                            <input class="form-check-input country-checkbox" type="checkbox" 
+                                   value="${country}" id="country_${country}">
+                            <label class="form-check-label" for="country_${country}">
+                                ${country}
+                            </label>
+                        </div>
+                    `;
+                });
+                $('#countrySelector').html(html);
+                
+                // Add event listeners to checkboxes
+                $('.country-checkbox').on('change', function() {
+                    updateSelectedCountries();
+                    updateComparison();
+                });
+                
+                // Select first 3 countries by default
+                $('.country-checkbox').slice(0, 3).prop('checked', true);
+                updateSelectedCountries();
+                updateComparison();
+            },
+            error: function() {
+                $('#countrySelector').html('<div class="alert alert-danger">Failed to load countries</div>');
+            }
+        });
+    }
+    
+    // Update selected countries array
+    function updateSelectedCountries() {
+        selectedCountries = [];
+        $('.country-checkbox:checked').each(function() {
+            selectedCountries.push($(this).val());
+        });
+    }
+    
+    // Select all countries
+    window.selectAll = function() {
+        $('.country-checkbox').prop('checked', true);
+        updateSelectedCountries();
+        updateComparison();
+    }
+    
+    // Clear all countries
+    window.clearAll = function() {
+        $('.country-checkbox').prop('checked', false);
+        updateSelectedCountries();
+        updateComparison();
+    }
+    
+    // Update comparison charts
+    function updateComparison() {
+        if (selectedCountries.length === 0) {
+            $('#compareChart1').html('<div class="alert alert-warning text-center">Please select at least one country to compare</div>');
+            $('#compareChart2').html('<div class="alert alert-warning text-center">Please select at least one country to compare</div>');
+            return;
+        }
+        
+        loadComparisonChart1();
+        
+        // Load second chart with delay for animation effect
+        setTimeout(function() {
+            loadComparisonChart2();
+        }, 400);
+    }
+    
+    // Load first comparison chart with left-to-right animation
+    function loadComparisonChart1() {
+        showLoading('compareChart1');
+        
+        $.ajax({
+            url: '{% url "dashboard:country_comparison" %}',
+            data: { 
+                'countries[]': selectedCountries,
+                metric: currentMetric 
+            },
+            success: function(response) {
+                const graphDiv = document.getElementById('compareChart1');
+                const graphData = JSON.parse(response.graph);
+                
+                // Add animation to the chart
+                graphData.layout.transition = {
+                    duration: 800,
+                    easing: 'cubic-in-out'
+                };
+                
+                Plotly.newPlot(graphDiv, graphData.data, graphData.layout, {responsive: true});
+                graphDiv.classList.add('slide-in-left');
+            },
+            error: function() {
+                showError('compareChart1', 'Failed to load comparison data');
+            }
+        });
+    }
+    
+    // Load second comparison chart with right-to-left animation
+    function loadComparisonChart2() {
+        showLoading('compareChart2');
+        
+        $.ajax({
+            url: '{% url "dashboard:country_comparison" %}',
+            data: { 
+                'countries[]': selectedCountries,
+                metric: currentMetric 
+            },
+            success: function(response) {
+                const graphDiv = document.getElementById('compareChart2');
+                const graphData = JSON.parse(response.graph);
+                
+                // Modify the chart to show bars instead of lines for variety
+                graphData.data.forEach(function(trace) {
+                    trace.type = 'bar';
+                    trace.mode = undefined;
+                });
+                
+                graphData.layout.title = typeof graphData.layout.title === 'string' 
+                    ? graphData.layout.title.replace('Country Comparison', 'Country Comparison (Bar Chart)')
+                    : 'Country Comparison (Bar Chart) - ' + currentMetric.charAt(0).toUpperCase() + currentMetric.slice(1);
+                graphData.layout.transition = {
+                    duration: 800,
+                    easing: 'cubic-in-out'
+                };
+                
+                Plotly.newPlot(graphDiv, graphData.data, graphData.layout, {responsive: true});
+                graphDiv.classList.add('slide-in-right');
+            },
+            error: function() {
+                showError('compareChart2', 'Failed to load comparison data');
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
